@@ -1,0 +1,12 @@
+{
+  "name": "jury-experiment-0",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "run": "bun src/runner.ts",
+    "metrics": "bun src/metrics.ts",
+    "mine": "bun src/mine.ts"
+  },
+  "description": "Experiment 0 validation harness for jury — runs N models against a hand-curated bug dataset and computes ensemble-lift metrics."
+}
