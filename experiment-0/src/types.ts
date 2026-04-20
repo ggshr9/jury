@@ -26,20 +26,44 @@ export type Category =
     | 'coverage-gap' | 'flaky-test' | 'weak-assertion'
     | 'other'
 
-/** Ground-truth entry in dataset/bugs.jsonl. */
+/** Ground-truth entry in dataset/bugs.jsonl.
+ *
+ * A single `intro_commit` often introduces multiple real bugs (observed on
+ * wechat-001: both DeepSeek and Kimi independently caught the admin-gate
+ * bug that was latent in the same commit as the cwd bug I originally
+ * labeled). We accept an array of ground truths to avoid penalizing models
+ * for catching *other* real bugs in the commit.
+ *
+ * Backwards compat: `file` + `line` + `category` at top level are still
+ * recognized as "the one labeled bug" shorthand; loader promotes them
+ * into ground_truths[0] if the new array isn't provided.
+ */
 export interface DatasetEntry {
     id: string              // "compass-001"
     repo: string            // "compass" | "cc-guard" | "wechat-cc"
     repo_path: string       // absolute path
     fix_commit: string      // short SHA
     intro_commit: string    // short SHA of bug-introducing commit
-    file: string            // ground-truth file path, relative to repo root
+    title: string
+    notes?: string
+
+    /** One or more ground-truth bug locations at intro_commit. */
+    ground_truths?: GroundTruth[]
+
+    // Legacy single-bug shorthand (promoted into ground_truths[0] at load)
+    file?: string
+    line?: number | [number, number]
+    category?: Category
+    severity?: Severity
+    description?: string
+}
+
+export interface GroundTruth {
+    file: string
     line: number | [number, number]
     category: Category
     severity: Severity
-    title: string
     description: string
-    notes?: string
 }
 
 /** A finding as produced by a single reviewer. Normalized from whatever

@@ -15,28 +15,26 @@
  *   bun src/runner.ts --rerun
  */
 
-import { mkdirSync, readFileSync, writeFileSync, existsSync } from 'fs'
+import { mkdirSync, writeFileSync, existsSync } from 'fs'
 import { join } from 'path'
 import { spawnSync } from 'child_process'
-import type { DatasetEntry, ReviewerRun } from './types'
+import type { ReviewerRun } from './types'
 import {
     AnthropicReviewer, DeepSeekReviewer, KimiOnPremReviewer, ZenMuxReviewer,
     type Reviewer, type ReviewContext,
 } from './reviewers'
+import { loadDataset as loadDatasetNormalized } from './dataset'
 
 const ROOT = new URL('..', import.meta.url).pathname
 const DATASET = join(ROOT, 'dataset', 'bugs.jsonl')
 const FINDINGS_DIR = join(ROOT, 'findings')
 
-function loadDataset(): DatasetEntry[] {
+function loadDataset() {
     if (!existsSync(DATASET)) {
         console.error(`Missing ${DATASET}. Populate it first (see experiment-0/README.md).`)
         process.exit(1)
     }
-    return readFileSync(DATASET, 'utf8')
-        .split('\n')
-        .filter(l => l.trim() && !l.startsWith('//'))
-        .map(l => JSON.parse(l) as DatasetEntry)
+    return loadDatasetNormalized(DATASET)
 }
 
 /** Resolve the unified diff of `commit` in `repo_path`. */

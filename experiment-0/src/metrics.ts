@@ -23,10 +23,11 @@
 import { readFileSync, readdirSync, writeFileSync, existsSync } from 'fs'
 import { join } from 'path'
 import type {
-    DatasetEntry, Finding, ReviewerRun, BugMetrics, PerModelMetric,
+    DatasetEntry, GroundTruth, Finding, ReviewerRun, BugMetrics, PerModelMetric,
     AggregateMetrics, ReviewerAggregate, Verdict,
 } from './types'
 import { buildJuryVerdict } from './ensemble'
+import { loadDataset as loadDatasetNormalized, type NormalizedEntry } from './dataset'
 
 const ROOT = new URL('..', import.meta.url).pathname
 const DATASET = join(ROOT, 'dataset', 'bugs.jsonl')
@@ -35,10 +36,8 @@ const OUT = join(ROOT, 'metrics.json')
 
 const LINE_TOLERANCE = 3
 
-function loadDataset(): DatasetEntry[] {
-    return readFileSync(DATASET, 'utf8')
-        .split('\n').filter(l => l.trim() && !l.startsWith('//'))
-        .map(l => JSON.parse(l) as DatasetEntry)
+function loadDataset(): NormalizedEntry[] {
+    return loadDatasetNormalized(DATASET)
 }
 
 function loadFindings(bugId: string): Record<string, ReviewerRun> {
@@ -54,9 +53,17 @@ function loadFindings(bugId: string): Record<string, ReviewerRun> {
     return out
 }
 
-/** Match a finding against ground truth. Same file + line within tolerance.
- *  We don't check category/severity because models vary in taxonomy. */
-function matchesGroundTruth(f: Finding | Verdict, gt: DatasetEntry): boolean {
+/** Match a finding against any ground truth in a bug's ground_truths list.
+ *  Same file + line within tolerance. No category/severity check because
+ *  models vary wildly in taxonomy. */
+function matchesAnyGroundTruth(f: Finding | Verdict, gts: GroundTruth[]): boolean {
+    for (const gt of gts) {
+        if (matchesOneGroundTruth(f, gt)) return true
+    }
+    return false
+}
+
+function matchesOneGroundTruth(f: Finding | Verdict, gt: GroundTruth): boolean {
     if (normFile(f.file) !== normFile(gt.file)) return false
     if (f.line === undefined) return false
     const gtStart = Array.isArray(gt.line) ? gt.line[0]! : gt.line
@@ -70,17 +77,17 @@ function normFile(s: string): string {
     return s.replace(/^\.?\/+/, '').trim()
 }
 
-function computePerModel(findings: Finding[], gt: DatasetEntry): PerModelMetric {
+function computePerModel(findings: Finding[], entry: NormalizedEntry): PerModelMetric {
     let caughtRank: number | null = null
     for (let i = 0; i < findings.length; i++) {
-        if (matchesGroundTruth(findings[i]!, gt)) {
+        if (matchesAnyGroundTruth(findings[i]!, entry.ground_truths)) {
             caughtRank = i + 1
             break
         }
     }
     const total = findings.length
     const falsePositives = findings.filter(f =>
-        (f.severity === 'critical' || f.severity === 'important') && !matchesGroundTruth(f, gt),
+        (f.severity === 'critical' || f.severity === 'important') && !matchesAnyGroundTruth(f, entry.ground_truths),
     ).length
 
     return {
@@ -169,10 +176,10 @@ function decide(agg: AggregateMetrics): { decision: AggregateMetrics['decision']
     return { decision: 'SHIP', reason: `jury Top-3 +${gainPp.toFixed(1)}pp vs best single; validated` }
 }
 
-function perBugMetrics(bug: DatasetEntry, runs: Record<string, ReviewerRun>): BugMetrics {
+function perBugMetrics(entry: NormalizedEntry, runs: Record<string, ReviewerRun>): BugMetrics {
     const per_reviewer: Record<string, PerModelMetric> = {}
     for (const [name, run] of Object.entries(runs)) {
-        per_reviewer[name] = computePerModel(run.findings, bug)
+        per_reviewer[name] = computePerModel(run.findings, entry)
     }
 
     // Compute jury verdict from all reviewers that ran successfully
@@ -185,10 +192,10 @@ function perBugMetrics(bug: DatasetEntry, runs: Record<string, ReviewerRun>): Bu
     const jury: PerModelMetric = (() => {
         let caughtRank: number | null = null
         for (let i = 0; i < verdict.length; i++) {
-            if (matchesGroundTruth(verdict[i]!, bug)) { caughtRank = i + 1; break }
+            if (matchesAnyGroundTruth(verdict[i]!, entry.ground_truths)) { caughtRank = i + 1; break }
         }
         const falsePositives = verdict.filter(v =>
-            (v.severity === 'critical' || v.severity === 'important') && !matchesGroundTruth(v, bug),
+            (v.severity === 'critical' || v.severity === 'important') && !matchesAnyGroundTruth(v, entry.ground_truths),
         ).length
         return {
             caught: caughtRank !== null,
@@ -201,7 +208,7 @@ function perBugMetrics(bug: DatasetEntry, runs: Record<string, ReviewerRun>): Bu
         }
     })()
 
-    return { bug_id: bug.id, repo: bug.repo, per_reviewer, jury }
+    return { bug_id: entry.id, repo: entry.repo, per_reviewer, jury }
 }
 
 async function main() {
