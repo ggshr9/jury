@@ -146,6 +146,9 @@ interface ChatCompletionOpts {
     timeoutMs?: number
     maxTokens?: number
     jsonMode?: boolean
+    /** Forwarded as request body `chat_template_kwargs`. Needed for Kimi
+     *  K2.5 to disable its verbose chain-of-thought: `{ thinking: false }`. */
+    chatTemplateKwargs?: Record<string, unknown>
 }
 
 async function callChatCompletion(opts: ChatCompletionOpts): Promise<string> {
@@ -160,9 +163,10 @@ async function callChatCompletion(opts: ChatCompletionOpts): Promise<string> {
                 { role: 'user', content: opts.userPrompt },
             ],
             temperature: opts.temperature ?? 0.2,
-            max_tokens: opts.maxTokens ?? 2048,
+            max_tokens: opts.maxTokens ?? 4096,
         }
         if (opts.jsonMode) body.response_format = { type: 'json_object' }
+        if (opts.chatTemplateKwargs) body.chat_template_kwargs = opts.chatTemplateKwargs
 
         const res = await fetch(`${opts.baseUrl}/v1/chat/completions`, {
             method: 'POST',
@@ -177,8 +181,13 @@ async function callChatCompletion(opts: ChatCompletionOpts): Promise<string> {
             const text = await res.text()
             throw new Error(`${opts.model} HTTP ${res.status}: ${text.slice(0, 200)}`)
         }
-        const json = await res.json() as { choices?: Array<{ message?: { content?: string } }> }
-        return json.choices?.[0]?.message?.content ?? ''
+        // Some reasoning-capable models (Kimi K2.5, DeepSeek Reasoner) return
+        // `content: null` when the thinking trace was not stopped early, and
+        // put the visible answer under `reasoning_content`. We accept either
+        // — downstream parser handles JSON-in-noise anyway.
+        const json = await res.json() as { choices?: Array<{ message?: { content?: string | null; reasoning_content?: string } }> }
+        const msg = json.choices?.[0]?.message
+        return (msg?.content ?? msg?.reasoning_content ?? '').toString()
     } finally {
         clearTimeout(t)
     }
@@ -194,6 +203,8 @@ async function reviewViaChatApi(
         systemPrompt: SYSTEM_PROMPT,
         userPrompt: USER_TEMPLATE(ctx.diff),
     })
+    // Stash raw output for debugging — the runner will save it alongside findings.
+    ;(globalThis as Record<string, unknown>).__jury_last_raw = raw
     let parsed = tryExtractJson(raw)
     if (!parsed) {
         // self-repair: ask the model to fix its own JSON
@@ -269,6 +280,13 @@ export class KimiOnPremReviewer implements Reviewer {
             baseUrl: process.env.KIMI_BASE_URL ?? 'http://10.84.10.22:8003',
             apiKey: requireEnv('COMPASS_LLM_ONPREM_KEY'),
             model: this.model,
+            // Kimi K2.5 auto-reasons; disable to get a direct JSON answer
+            // matching compass/llm's production config.
+            chatTemplateKwargs: { thinking: false },
+            // Thinking-off still generates longer replies than base chat.
+            maxTokens: 4096,
+            // Kimi on-prem is slower than API services; give it room.
+            timeoutMs: 240_000,
         }, ctx, this.name)
     }
 }

@@ -79,8 +79,10 @@ async function runOneReviewer(
     ctx: ReviewContext,
 ): Promise<ReviewerRun> {
     const start = Date.now()
+    ;(globalThis as Record<string, unknown>).__jury_last_raw = undefined
     try {
         const findings = await reviewer.review(ctx)
+        const raw = (globalThis as Record<string, unknown>).__jury_last_raw as string | undefined
         return {
             bug_id: ctx.bugId,
             reviewer: reviewer.name,
@@ -88,8 +90,10 @@ async function runOneReviewer(
             ts: new Date().toISOString(),
             duration_ms: Date.now() - start,
             findings,
+            raw_output: typeof raw === 'string' ? raw : undefined,
         }
     } catch (err) {
+        const raw = (globalThis as Record<string, unknown>).__jury_last_raw as string | undefined
         return {
             bug_id: ctx.bugId,
             reviewer: reviewer.name,
@@ -97,6 +101,7 @@ async function runOneReviewer(
             ts: new Date().toISOString(),
             duration_ms: Date.now() - start,
             findings: [],
+            raw_output: typeof raw === 'string' ? raw : undefined,
             error: err instanceof Error ? err.message : String(err),
         }
     }
