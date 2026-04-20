@@ -97,7 +97,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: jury-sh/review@v1
+      - uses: ggshr9/jury-action@v1
         with:
           config: jury.yaml   # optional; defaults to repo root
           post-as-review: true # inline comments on PR
