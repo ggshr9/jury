@@ -1,0 +1,115 @@
+# Example jury.yaml — realistic 4-reviewer panel for a small backend service.
+# Drop this at the root of your repo and run `jury review`.
+#
+# Env vars expected:
+#   ANTHROPIC_API_KEY  — for Claude models
+#   OPENAI_API_KEY     — for GPT models
+#   DEEPSEEK_API_KEY   — for DeepSeek models
+#   (or use OpenRouter and set OPENROUTER_API_KEY; see docs/dsl.md)
+#
+# Commit this file. Do NOT commit keys.
+
+version: 1
+
+reviewers:
+  # Generalist reviewer. Fast, cheap, catches the obvious correctness issues.
+  - name: bug-hunter
+    role: general-correctness
+    model: claude-sonnet-4.6
+
+  # Security specialist. Stronger model because security findings are high-stakes.
+  - name: security-sentinel
+    role: security
+    model: gpt-5.4
+    focus: [authn, authz, injection, secrets, crypto, ssrf]
+
+  # Concurrency reasoning is hard — use a reasoning-optimized model.
+  - name: concurrency-watcher
+    role: concurrency
+    model: deepseek-r1
+    escalate_on: [async, worker, lock, channel, mutex, atomic]
+
+  # Cheap second opinion on code quality + maintainability. Weighted down so
+  # its style opinions don't override the substantive reviewers' correctness
+  # findings in quorum calculations.
+  - name: maintainability
+    role: code-quality
+    model: qwen-2.5-coder-32b
+    weight: 0.6
+
+quorum:
+  critical: unanimous    # all reviewers must agree before we block CI
+  important: majority    # more than half
+  minor: any             # even a single reviewer noting is enough
+
+dissent:
+  # In these categories, a single reviewer's finding gets elevated to
+  # "Informed Dissent" (assuming the finding has concrete evidence).
+  # These are all "low frequency, high damage" categories where catching
+  # a bug the others missed is worth the chance of one false alarm.
+  elevate_categories:
+    - race-condition
+    - auth
+    - injection
+    - secret-leak
+    - data-integrity
+    - crypto
+
+  # In these, minority findings get dropped unless 2+ reviewers agree.
+  # These are the "taste" categories where single-reviewer noise hurts.
+  weak_categories:
+    - naming
+    - style
+    - doc-formatting
+    - indentation
+    - comment-wording
+  weak_category_threshold: 2
+
+  evidence_required: true  # elevated findings must include evidence
+
+short_circuit:
+  tiny_diff_threshold: 20        # <20 lines: only bug-hunter runs
+  critical_early_exit: true      # don't wait for other reviewers after a unanimous critical
+  skip_patterns:
+    - "*.md"
+    - "*.lock"
+    - "CHANGELOG*"
+    - ".github/dependabot.yml"
+    - "package-lock.json"
+
+context:
+  dependency_graph_depth: 2      # show reviewers touched files + 2 hops
+  include_commit_history: 5      # last 5 commits touching changed files
+  include_test_files: true
+
+cache:
+  enabled: true
+  # Cache key includes diff SHA + model list + jury version + prompt
+  # hashes, so a version upgrade or prompt tweak invalidates automatically.
+
+# Per-path overrides. Evaluated in order, first match wins.
+routing:
+  # Auth / crypto: stricter quorum, add an extra security reviewer.
+  - paths: ["auth/**", "crypto/**", "internal/session/**"]
+    override_quorum:
+      important: unanimous
+      minor: majority
+
+  # Database migrations: add migration-safety reviewer, deeper context.
+  - paths: ["migrations/**", "db/migrations/**"]
+    add_reviewers:
+      - name: migration-safety
+        role: migration-safety
+        model: gpt-5.4
+    context:
+      dependency_graph_depth: 4
+
+  # Frontend: use lighter panel since security concerns are different.
+  - paths: ["frontend/**", "web/**"]
+    use_reviewers: [bug-hunter, maintainability]
+
+output:
+  format: both                    # both markdown and JSON
+  verbose: false                  # set true in CI to show per-reviewer votes
+  show_minority_report: true
+  show_confidence_scores: false

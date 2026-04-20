@@ -1,0 +1,337 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>jury — multiple reviews, one verdict</title>
+<meta name="description" content="Run your diff past a panel of LLM reviewers and see only the findings they agree on. Consensus-filtered code review for teams who want to trust AI to gate a merge.">
+
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Newsreader:ital,opsz,wght@0,6..72,300;0,6..72,500;1,6..72,400;1,6..72,500&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <header class="top-nav">
+    <div class="container">
+      <a href="/" class="brand" aria-label="jury home">
+        <span class="brand-mark">⚖</span>
+        <span class="brand-name">jury</span>
+      </a>
+      <nav class="top-links" aria-label="primary">
+        <a href="#how">How it works</a>
+        <a href="#config">Configure</a>
+        <a href="#status">Status</a>
+        <a href="https://github.com/jury-sh/cli" class="top-cta">Star on GitHub <span aria-hidden="true">→</span></a>
+      </nav>
+    </div>
+  </header>
+
+  <main>
+    <section class="hero">
+      <div class="container">
+        <p class="hero-eyebrow">Consensus code review</p>
+        <h1 class="hero-title">
+          <span class="hero-title-line-1">Multiple reviews.</span><br>
+          <span class="hero-title-line-2"><em>One</em> verdict.</span>
+        </h1>
+        <p class="hero-lead">
+          Run your diff past a panel of LLM reviewers and see only the findings
+          they agree on — ranked, clustered, and annotated with dissenting
+          opinions. Built for teams who want AI review they can trust to gate
+          a merge.
+        </p>
+        <div class="hero-ctas">
+          <a href="#quickstart" class="cta-primary">Try the CLI</a>
+          <a href="#how" class="cta-secondary">How it works</a>
+        </div>
+        <p class="hero-note">
+          Open source. Apache&nbsp;2.0. Bring your own API keys —
+          nothing leaves your machine in the self-hosted setup.
+        </p>
+      </div>
+    </section>
+
+    <!-- The problem -->
+    <section class="problem">
+      <div class="container narrow">
+        <p class="section-kicker">The problem</p>
+        <h2>Single-model review has a ceiling.</h2>
+        <p class="prose">
+          You've seen it. The first week the AI reviewer ships real bugs, the
+          team celebrates. Week four, half the findings are bike-shedding
+          variable names, and the one genuine SQL injection is buried at item
+          14. People hit <code>--no-verify</code> and the gate becomes
+          decorative.
+        </p>
+        <p class="prose">
+          This isn't a prompt-engineering failure. It's a structural one. A
+          single model has <em>one</em> opinion about what matters in a diff,
+          with <em>one</em> set of training blind spots. You can't tune your
+          way out of it — tighter threshold loses real bugs, looser threshold
+          drowns you in noise.
+        </p>
+
+        <div class="quote-block">
+          <p>
+            &ldquo;The underlying model is fine. The filter is the product.&rdquo;
+          </p>
+        </div>
+      </div>
+    </section>
+
+    <!-- How it works -->
+    <section class="how" id="how">
+      <div class="container">
+        <p class="section-kicker">How it works</p>
+        <h2>A panel, not a pundit.</h2>
+
+        <div class="how-diagram">
+          <div class="flow-step">
+            <div class="flow-label">1 · Fan out</div>
+            <p>Your diff goes to 3–5 role-specialized reviewers in parallel.
+               Each uses a different model, a different prompt, different
+               training data.</p>
+          </div>
+          <div class="flow-arrow" aria-hidden="true">→</div>
+          <div class="flow-step">
+            <div class="flow-label">2 · Cluster</div>
+            <p>Findings that point at the same underlying issue get merged
+               across reviewers, even when worded differently. File + line +
+               category exact match, then embedding similarity for semantic
+               dupes.</p>
+          </div>
+          <div class="flow-arrow" aria-hidden="true">→</div>
+          <div class="flow-step">
+            <div class="flow-label">3 · Quorum</div>
+            <p>Consensus rules decide what makes the verdict. Unanimous for
+               <em>critical</em>, majority for <em>important</em>, any for
+               <em>minor</em>. Every default is tunable.</p>
+          </div>
+          <div class="flow-arrow" aria-hidden="true">→</div>
+          <div class="flow-step">
+            <div class="flow-label">4 · Verdict</div>
+            <p>Short, ranked, trustable. Informed dissent surfaces as a
+               separate section — minority opinions worth reviewing, not
+               noise to ignore.</p>
+          </div>
+        </div>
+
+        <div class="sample">
+          <p class="section-kicker small">Sample verdict</p>
+<pre><span class="verdict-header">VERDICT · 4 findings · 2 critical · 1 important · 1 dissent worth review</span>
+
+<span class="sev-crit">CRITICAL</span>  <span class="sev-quorum">4/4 agreed</span>    auth.ts:42
+  SQL injection: userId reaches db.query() without sanitization
+  ├─ bug-hunter      (claude-sonnet-4.6): flagged direct interpolation
+  ├─ security        (gpt-5.4): recommends parameterized query via prepare()
+  ├─ concurrency     (deepseek-r1): flagged as both SQL injection and race
+  └─ maintainability (qwen-coder):  same injection pattern
+
+<span class="sev-crit">CRITICAL</span>  <span class="sev-quorum">4/4 agreed</span>    worker.ts:78
+  Race condition: shared sessions map mutated without lock across goroutines
+
+<span class="sev-impt">IMPORTANT</span> <span class="sev-quorum">3/4 agreed</span>    auth.ts:120
+  Missing null check on decoded.email before .toLowerCase()
+
+<span class="sev-dissent">DISSENT</span>   <span class="sev-quorum">1/4, elevated</span> utils.ts:15
+  concurrency: memoize cache is not thread-safe; reviewed evidence shows
+  two concurrent call paths. Others didn't flag — surfaced because category
+  = race-condition AND evidence present.</pre>
+        </div>
+      </div>
+    </section>
+
+    <!-- Configure -->
+    <section class="config" id="config">
+      <div class="container">
+        <p class="section-kicker">Configuration</p>
+        <h2>A single file.</h2>
+        <p class="prose prose-wide">
+          The <code>jury.yaml</code> at your repo root is the source of truth.
+          Switch reviewers, adjust quorum rules, short-circuit tiny PRs,
+          apply per-path overrides. The CLI, the GitHub Action, and the
+          pre-commit hook all read from the same file. Everyone on your team
+          sees the same verdict because everyone's running the same config.
+        </p>
+<pre class="config-code"><span class="c-key">version:</span> <span class="c-num">1</span>
+
+<span class="c-key">reviewers:</span>
+  <span class="c-dash">-</span> <span class="c-key">name:</span> bug-hunter
+    <span class="c-key">model:</span> claude-sonnet-4.6
+  <span class="c-dash">-</span> <span class="c-key">name:</span> security
+    <span class="c-key">model:</span> gpt-5.4
+    <span class="c-key">role:</span> security
+  <span class="c-dash">-</span> <span class="c-key">name:</span> concurrency
+    <span class="c-key">model:</span> deepseek-r1
+    <span class="c-key">role:</span> concurrency
+
+<span class="c-key">quorum:</span>
+  <span class="c-key">critical:</span> unanimous
+  <span class="c-key">important:</span> majority
+
+<span class="c-key">dissent:</span>
+  <span class="c-key">elevate_categories:</span> [race-condition, auth, injection]
+  <span class="c-key">weak_categories:</span>    [naming, style]
+
+<span class="c-key">routing:</span>
+  <span class="c-dash">-</span> <span class="c-key">paths:</span> [<span class="c-str">"auth/**"</span>, <span class="c-str">"crypto/**"</span>]
+    <span class="c-key">override_quorum:</span>
+      <span class="c-key">important:</span> unanimous</pre>
+
+        <p class="prose prose-wide muted">
+          Full reference, including reviewer roles, model catalog, and
+          per-path routing rules, in <a href="../docs/dsl.md">docs/dsl.md</a>.
+        </p>
+      </div>
+    </section>
+
+    <!-- Quickstart -->
+    <section class="quickstart" id="quickstart">
+      <div class="container">
+        <p class="section-kicker">Quick start</p>
+        <h2>Three commands.</h2>
+        <ol class="cmd-list">
+          <li>
+            <div class="step-num">1</div>
+            <div class="step-body">
+              <p class="step-title">Install the CLI</p>
+<pre><span class="prompt">$</span> curl -sSL jury.dev/install | sh</pre>
+            </div>
+          </li>
+          <li>
+            <div class="step-num">2</div>
+            <div class="step-body">
+              <p class="step-title">Configure your panel</p>
+<pre><span class="prompt">$</span> jury init  <span class="comment"># interactive; writes jury.yaml</span></pre>
+            </div>
+          </li>
+          <li>
+            <div class="step-num">3</div>
+            <div class="step-body">
+              <p class="step-title">Review your branch</p>
+<pre><span class="prompt">$</span> jury review main..HEAD</pre>
+            </div>
+          </li>
+        </ol>
+        <p class="prose muted">
+          Or drop a <a href="https://github.com/jury-sh/review">GitHub Action</a>
+          into <code>.github/workflows/</code> and let it post inline PR
+          comments.
+        </p>
+      </div>
+    </section>
+
+    <!-- Why / for whom -->
+    <section class="for-whom">
+      <div class="container">
+        <p class="section-kicker">Is it for you?</p>
+        <h2>We'll tell you when it isn't.</h2>
+
+        <div class="cards">
+          <div class="card card-yes">
+            <p class="card-kicker">Worth the cost if</p>
+            <ul>
+              <li>You gate merges on AI review and false positives are killing trust</li>
+              <li>Your code is security-critical — auth, crypto, data handling</li>
+              <li>Your service is concurrency-heavy and single-model review misses races</li>
+              <li>You're an OSS maintainer drowning in contributor PRs</li>
+              <li>You've tried CodeRabbit / Qodo / Greptile and turned them off</li>
+            </ul>
+          </div>
+
+          <div class="card card-no">
+            <p class="card-kicker">Stick with one model if</p>
+            <ul>
+              <li>Your PRs are mostly doc / dependency bumps</li>
+              <li>You have strong static tooling (Rust + clippy, type-strict TS) already</li>
+              <li>4× API cost isn't justifiable for marginal improvement</li>
+              <li>You don't run AI review as a merge gate, only as advisory</li>
+              <li>You're doing a throwaway prototype</li>
+            </ul>
+          </div>
+        </div>
+
+        <p class="prose muted">
+          Read the full breakdown in
+          <a href="../docs/use-cases.md">docs/use-cases.md</a>.
+        </p>
+      </div>
+    </section>
+
+    <!-- Status -->
+    <section class="status" id="status">
+      <div class="container narrow">
+        <p class="section-kicker">Status</p>
+        <h2>Being built in the open.</h2>
+        <p class="prose">
+          Jury is pre-v0.1. The architecture described here is implemented
+          incrementally, with an honest validation gate before we ship.
+        </p>
+        <ul class="roadmap">
+          <li class="todo">Experiment 0 — validation on 30 historical bug-introducing commits. If ensemble gains don't beat single-model by 15+ pp Top-3 precision, we walk away from the idea.</li>
+          <li class="todo">CLI scaffold — fixed 3-model panel, no DSL yet</li>
+          <li class="todo">Consensus engine — clustering + quorum + dissent</li>
+          <li class="todo">jury.yaml v1 parser + validator</li>
+          <li class="todo">GitHub Action</li>
+          <li class="todo">Reviewer adapter plugins (Codex CLI, Claude, OpenRouter, Ollama)</li>
+          <li class="todo">Pre-commit hook</li>
+          <li class="todo">IDE plugins</li>
+        </ul>
+        <p class="prose muted">
+          No vapor ETAs. Milestones post when they ship.
+        </p>
+      </div>
+    </section>
+
+    <!-- Philosophy -->
+    <section class="philosophy">
+      <div class="container narrow">
+        <figure class="pull-quote">
+          <blockquote>
+            &ldquo;Consensus is cheap. Informed dissent is valuable.
+            Reviewer diversity beats reviewer strength. Caching is not optional.&rdquo;
+          </blockquote>
+          <figcaption>— design principles, <a href="../docs/spec.md">spec.md</a></figcaption>
+        </figure>
+      </div>
+    </section>
+  </main>
+
+  <footer>
+    <div class="container">
+      <div class="footer-grid">
+        <div>
+          <p class="footer-brand">
+            <span class="brand-mark">⚖</span> jury
+          </p>
+          <p class="footer-tagline">Multiple reviews. One verdict.</p>
+        </div>
+        <div>
+          <p class="footer-section">Product</p>
+          <a href="#how">How it works</a>
+          <a href="#config">Configure</a>
+          <a href="#quickstart">Quick start</a>
+          <a href="#status">Status</a>
+        </div>
+        <div>
+          <p class="footer-section">Docs</p>
+          <a href="../README.md">Overview</a>
+          <a href="../docs/spec.md">Design spec</a>
+          <a href="../docs/dsl.md">DSL reference</a>
+          <a href="../docs/use-cases.md">Use cases</a>
+        </div>
+        <div>
+          <p class="footer-section">Source</p>
+          <a href="https://github.com/jury-sh/cli">GitHub</a>
+          <a href="https://github.com/jury-sh/review">GitHub Action</a>
+          <a href="https://github.com/jury-sh/cli/blob/main/LICENSE">License (Apache 2.0)</a>
+        </div>
+      </div>
+      <p class="footer-fine">
+        Apache 2.0 · Pre-v0.1 · In development
+      </p>
+    </div>
+  </footer>
+</body>
+</html>
