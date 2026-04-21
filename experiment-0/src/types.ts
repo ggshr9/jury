@@ -135,6 +135,16 @@ export interface AggregateMetrics {
     n: number                    // dataset size
     per_reviewer: Record<string, ReviewerAggregate>
     jury: ReviewerAggregate
+    /**
+     * Precision of jury's verdict list across the full dataset.
+     * total verdict matches / total verdicts emitted. Null if jury emitted
+     * zero verdicts. This is the "when jury fires, is it right?" metric —
+     * arguably more important for jury's product positioning than recall,
+     * since the pitch is "trustable short list" not "catch everything".
+     */
+    jury_consensus_precision: number | null
+    jury_verdicts_total: number
+    jury_verdicts_matching: number
     pairwise_jaccard: Record<string, Record<string, number>>  // independence check
     decision: 'SHIP' | 'CONTINUE_CAUTIOUSLY' | 'KILL'
     decision_reason: string

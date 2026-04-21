@@ -150,9 +150,6 @@ function decide(agg: AggregateMetrics): { decision: AggregateMetrics['decision']
     if (reviewers.length === 0) {
         return { decision: 'KILL', reason: 'no reviewers ran' }
     }
-    const bestTop3 = Math.max(...reviewers.map(r => r.top3_precision))
-    const juryTop3 = agg.jury.top3_precision
-    const gainPp = (juryTop3 - bestTop3) * 100
 
     // Independence check: if all pairwise jaccard > 0.9, ensemble is
     // degenerate even if the numbers look OK.
@@ -163,17 +160,25 @@ function decide(agg: AggregateMetrics): { decision: AggregateMetrics['decision']
         }
     }
     const meanJac = jaccards.length ? jaccards.reduce((s, j) => s + j, 0) / jaccards.length : 0
-
     if (meanJac > 0.9) {
         return { decision: 'KILL', reason: `reviewers too correlated: mean pairwise Jaccard = ${round(meanJac)}` }
     }
-    if (gainPp < 15) {
-        return { decision: 'KILL', reason: `jury Top-3 only +${gainPp.toFixed(1)}pp vs best single (${round(bestTop3)}); below 15pp threshold` }
+
+    // Updated post-2026-04-21: the product is a PRECISION tool, not a
+    // RECALL tool. If consensus_precision >= 80%, jury's "trust us, these
+    // are real" short list has real product value — even if recall is
+    // lower than the best single model. See docs/spec.md §5 for rationale.
+    const cp = agg.jury_consensus_precision
+    if (cp === null || agg.jury_verdicts_total === 0) {
+        return { decision: 'KILL', reason: 'jury emitted no verdicts across the dataset; quorum too strict or models too independent' }
     }
-    if (gainPp < 25) {
-        return { decision: 'CONTINUE_CAUTIOUSLY', reason: `jury Top-3 +${gainPp.toFixed(1)}pp vs best single; marginal` }
+    if (cp >= 0.80) {
+        return { decision: 'SHIP', reason: `consensus precision ${(cp * 100).toFixed(1)}% on ${agg.jury_verdicts_total} verdicts; product is a high-precision filter` }
     }
-    return { decision: 'SHIP', reason: `jury Top-3 +${gainPp.toFixed(1)}pp vs best single; validated` }
+    if (cp >= 0.60) {
+        return { decision: 'CONTINUE_CAUTIOUSLY', reason: `consensus precision ${(cp * 100).toFixed(1)}% on ${agg.jury_verdicts_total} verdicts; borderline — add dissent layer before shipping` }
+    }
+    return { decision: 'KILL', reason: `consensus precision only ${(cp * 100).toFixed(1)}% on ${agg.jury_verdicts_total} verdicts; below 60% threshold — adding more reviewers is not yielding trustable signal` }
 }
 
 function perBugMetrics(entry: NormalizedEntry, runs: Record<string, ReviewerRun>): BugMetrics {
@@ -207,6 +212,7 @@ function perBugMetrics(entry: NormalizedEntry, runs: Record<string, ReviewerRun>
             false_positives: falsePositives,
         }
     })()
+
 
     return { bug_id: entry.id, repo: entry.repo, per_reviewer, jury }
 }
@@ -261,10 +267,31 @@ async function main() {
         }
     }
 
+    // Consensus precision: across all bugs, fraction of jury verdicts that
+    // match ground truth. This is jury's flagship metric — "when consensus
+    // fires, is it real?"
+    let verdicts_total = 0
+    let verdicts_matching = 0
+    for (const bug of bugs) {
+        const runs = loadFindings(bug.id)
+        const activeRuns = Object.entries(runs).filter(([_, r]) => !r.error)
+        const allF: Finding[] = []
+        for (const [_, r] of activeRuns) allF.push(...r.findings)
+        const v = buildJuryVerdict(allF, activeRuns.length)
+        verdicts_total += v.length
+        verdicts_matching += v.filter(x => matchesAnyGroundTruth(x, bug.ground_truths)).length
+    }
+    const jury_consensus_precision = verdicts_total > 0
+        ? round(verdicts_matching / verdicts_total)
+        : null
+
     const agg: AggregateMetrics = {
         n: perBug.length,
         per_reviewer,
         jury: aggregateJury(perBug),
+        jury_consensus_precision,
+        jury_verdicts_total: verdicts_total,
+        jury_verdicts_matching: verdicts_matching,
         pairwise_jaccard,
         decision: 'KILL',
         decision_reason: '',
@@ -282,6 +309,8 @@ async function main() {
         console.error(`  ${name.padEnd(16)} recall=${pct(m.recall)} top1=${pct(m.top1_precision)} top3=${pct(m.top3_precision)} MRR=${m.mrr.toFixed(3)} FP/bug=${m.mean_false_positives.toFixed(1)}`)
     }
     console.error(`\nJury (consensus): recall=${pct(agg.jury.recall)} top1=${pct(agg.jury.top1_precision)} top3=${pct(agg.jury.top3_precision)} MRR=${agg.jury.mrr.toFixed(3)} FP/bug=${agg.jury.mean_false_positives.toFixed(1)}`)
+    const cpStr = agg.jury_consensus_precision === null ? 'N/A' : `${(agg.jury_consensus_precision * 100).toFixed(1)}%`
+    console.error(`Consensus precision: ${cpStr} (${agg.jury_verdicts_matching}/${agg.jury_verdicts_total} verdicts match GT)`)
 
     console.error('\nPairwise Jaccard (lower = more independent):')
     const names = [...allReviewerNames].sort()
