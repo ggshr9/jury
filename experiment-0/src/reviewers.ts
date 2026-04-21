@@ -310,6 +310,34 @@ export class ZenMuxReviewer implements Reviewer {
     }
 }
 
+/** Internal Shanghai-Electric gateway exposing 8+ models (Qwen3, MiniMax,
+ *  GLM, DeepSeek-R1, Gemma-4, etc.) behind one OpenAI-compatible API.
+ *  See NEBULA_API_KEY in .env; company-internal network only. */
+export class NebulaReviewer implements Reviewer {
+    name: string
+    model: string
+    constructor(name: string, model: string) {
+        this.name = name
+        this.model = model
+    }
+    async review(ctx: ReviewContext): Promise<Finding[]> {
+        // Reasoning models (R1, MiniMax, some Qwen variants) may route their
+        // answer to reasoning_content instead of content — the shared adapter
+        // already handles that fallback.
+        return reviewViaChatApi({
+            baseUrl: 'https://ai.nebula-starlink.shanghai-electric.com',
+            apiKey: requireEnv('NEBULA_API_KEY'),
+            model: this.model,
+            // MiniMax burns a lot of tokens on reasoning trace before
+            // producing the JSON answer; 4K was not enough and left content
+            // empty. 8K gives headroom for ~500-line diffs.
+            maxTokens: 8192,
+            // MiniMax/R1 reason a lot, need more time
+            timeoutMs: 300_000,
+        }, ctx, this.name)
+    }
+}
+
 /** GPT-5.4 via Codex CLI. Spawns `codex task --model gpt-5.4 …` and
  *  expects JSON on stdout. TODO if we end up using this — for v0 we'll
  *  stick with the direct API path via ZenMux or OpenAI. */

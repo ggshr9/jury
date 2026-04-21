@@ -21,6 +21,7 @@ import { spawnSync } from 'child_process'
 import type { ReviewerRun } from './types'
 import {
     AnthropicReviewer, DeepSeekReviewer, KimiOnPremReviewer, ZenMuxReviewer,
+    NebulaReviewer,
     type Reviewer, type ReviewContext,
 } from './reviewers'
 import { loadDataset as loadDatasetNormalized } from './dataset'
@@ -63,12 +64,29 @@ function buildReviewers(): Reviewer[] {
     // Each reviewer silently omits itself if its env key isn't set.
     // The runner reports which were skipped at the top so you know what
     // ran before committing to a comparison.
+    //
+    // Panel rationale: we want structural diversity across the 4-5 slots.
+    // - DeepSeek V3 (Chinese MoE)
+    // - Kimi K2.5 (Chinese, different architecture)
+    // - GPT-5.4 (OpenAI, Western frontier, via ZenMux)
+    // - Gemini 3.1 Flash (Google, different training, via ZenMux)
+    // - Claude (Anthropic) if ANTHROPIC_API_KEY is set, otherwise skipped
     const out: Reviewer[] = []
     if (process.env.ANTHROPIC_API_KEY) out.push(new AnthropicReviewer())
     if (process.env.DEEPSEEK_API_KEY)  out.push(new DeepSeekReviewer())
     if (process.env.COMPASS_LLM_ONPREM_KEY) out.push(new KimiOnPremReviewer())
-    if (process.env.ZENMUX_API_KEY)    out.push(new ZenMuxReviewer('gpt-5.4', 'openai/gpt-5.4'))
-    // Future additions go here.
+    if (process.env.ZENMUX_API_KEY) {
+        out.push(new ZenMuxReviewer('gpt-5.4', 'openai/gpt-5.4'))
+        out.push(new ZenMuxReviewer('gemini-flash', 'google/gemini-3.1-flash-lite-preview'))
+    }
+    if (process.env.NEBULA_API_KEY) {
+        // Tap the internal Shanghai-Electric gateway for structurally-diverse
+        // models. Model IDs per that gateway's naming (Qwen3/GLM-5 are 404;
+        // actual working IDs verified 2026-04-21):
+        out.push(new NebulaReviewer('qwen3',   'qwen3.5-397b-a17b-w8a8-mtp'))
+        out.push(new NebulaReviewer('minimax', 'MiniMax-M2.5'))
+        out.push(new NebulaReviewer('gemma-4', 'gemma-4-31B-it'))
+    }
     return out
 }
 
